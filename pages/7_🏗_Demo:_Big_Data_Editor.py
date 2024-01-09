@@ -41,14 +41,14 @@ def load_data(conn):
 
 # Отображение данных из базы данных
 df_personal_dictionary = load_data(conn)
-st.write("Data loaded from database:")
-st.dataframe(df_personal_dictionary)
+# st.write("Data loaded from database:")
+# st.dataframe(df_personal_dictionary)
 
 # Кнопка для генерации списка слов
-if st.button('Generate Word List'):
+if st.button('Generate New Word List'):
     dataset = generate_dataset(1000)
-    st.write("Generated dataset with 1000 words")
-    st.dataframe(dataset)
+    st.write("Новый список сгенерирован!")
+    # st.dataframe(dataset)
 
 # Функция для сохранения данных в базу данных
 def save_to_database(df, conn):
