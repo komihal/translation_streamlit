@@ -1,59 +1,69 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-import random
 import nltk
-from nltk.corpus import stopwords
+from nltk.corpus import brown
+from collections import Counter
 
-# Загрузка стоп-слов
-nltk.download('stopwords')
-stop_words = set(stopwords.words('english'))
+# Загрузка корпуса Brown
+nltk.download('brown')
 
-# Установка начальных значений для генераторов случайных чисел
-random.seed(0)
-
-# Функция для генерации датасета
+# Функция для генерации датасета с частотами слов
 def generate_dataset(num_rows):
-    dataset = []
+    words = brown.words()
+    words = [word.lower() for word in words if word.isalpha()]
+    word_freq = Counter(words)
+    most_common_words = word_freq.most_common(num_rows)
 
-    for _ in range(num_rows):
-        word = random.choice(list(stop_words))
-        boolean_value = False  # Изначально все значения False
-        dataset.append((word, boolean_value))
-
-    return pd.DataFrame(dataset, columns=['word', 'already_known'])
+    df = pd.DataFrame(most_common_words, columns=['word', 'frequency'])
+    df['already_known'] = False  # Добавление колонки already_known
+    return df
 
 # Подключение к базе данных
-conn = sqlite3.connect('DB_streamlit_translate.db', check_same_thread=False)
+conn = sqlite3.connect('DB_streamlit_translate.db')
 
-# Создание таблицы, если она не существует
-conn.execute('CREATE TABLE IF NOT EXISTS english_dictionary (word TEXT, already_known BOOLEAN);')
+# Создание таблицы с дополнительной колонкой Frequency
+with conn:
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS english_dictionary (
+            word TEXT, 
+            already_known BOOLEAN,
+            frequency INTEGER
+        );
+    ''')
 
-# Проверка наличия данных в базе данных
-df_personal_dictionary = pd.read_sql_query('SELECT * FROM english_dictionary', conn)
+# Загрузка данных из базы данных
+def load_data(conn):
+    df = pd.read_sql_query('SELECT * FROM english_dictionary', conn)
+    if not df.empty:
+        df['already_known'] = df['already_known'].astype(bool)
+    return df
+
+# Настройка Streamlit
+st.set_page_config(layout="centered", page_title="Data Editor", page_icon="🧮")
+st.title("Личный список слов")
+
+df_personal_dictionary = load_data(conn)
 if df_personal_dictionary.empty:
-    # Если база данных пуста, генерируем новые данные и сохраняем их
-    df_personal_dictionary = generate_dataset(1000)
-    df_personal_dictionary.to_sql('english_dictionary', conn, if_exists='replace', index=False)
-else:
-    # Преобразование типа данных для булевой колонки
-    df_personal_dictionary['already_known'] = df_personal_dictionary['already_known'].astype('bool')
+    if st.button('Generate New Word List'):
+        df_personal_dictionary = generate_dataset(1000)
+        df_personal_dictionary.to_sql('english_dictionary', conn, if_exists='replace', index=False)
+        st.write("Новый список сгенерирован!")
 
-# Отображение данных с помощью AgGrid
-st.write("Data loaded from database:")
-grid_response = AgGrid(df_personal_dictionary, editable=True, fit_columns_on_grid_load=True)
-
-# Получение отредактированных данных
-edited_df = grid_response['data']
-
-# Функция для сохранения изменений в базу данных
-def save_changes():
+# Функция для сохранения данных в базу данных
+def save_to_database(df, conn):
     with conn:
-        edited_df.to_sql('english_dictionary', conn, if_exists='replace', index=False)
-        st.success("Changes saved to database successfully!")
+        df.to_sql('english_dictionary', conn, if_exists='replace', index=False)
+        st.success("Data saved to database successfully!")
 
-# Кнопка для сохранения изменений
-if st.button("Save Changes"):
-    save_changes()
+with st.form("data_editor_form"):
+    edited = st.data_editor(df_personal_dictionary, use_container_width=True)
+    submit_button = st.form_submit_button("Внести правки")
+
+if submit_button:
+    save_to_database(edited, conn)
+    st.expander("Edited dataset", expanded=True).dataframe(edited, use_container_width=True)
+    st.experimental_rerun()
 
 conn.close()
+
